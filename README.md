@@ -48,11 +48,15 @@ Inputs take `.Title`, `.Subtitle`, `.NoSpace`, `.ArgumentRequired` and `.NoArgum
 
 ## Commands
 
+`alfred.Main` gives your program these subcommands. Run them from your workflow's directory:
+
 ```
-prog build [-o dir]     write the .alfredworkflow to dir (default dist)
-prog install [-o dir]   build, then open the workflow in Alfred to import it
-prog plist              print info.plist
-prog run <uid> [query]  call a handler, as Alfred does
+go run . build [-o dir]     write the .alfredworkflow to dir (default dist)
+go run . install [-o dir]   build, then open the workflow in Alfred to import it
+go run . plist              print info.plist
+go run . run <uid> [query]  call a handler, as Alfred does
 ```
+
+Alfred uses `run` itself. Calling it directly is a quick way to check a handler's output.
 
 `go test ./...` checks the generated plist with `plutil` and builds a real package.
