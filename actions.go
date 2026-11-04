@@ -72,6 +72,16 @@ func Run(handler func(arg string) (string, error)) *ActionNode {
 	return a
 }
 
+// LaunchApps opens the apps or files at paths, such as
+// "/Applications/Safari.app". Use .Set("toggle", true) to hide an app that is
+// already frontmost instead.
+func LaunchApps(paths ...string) *ActionNode {
+	return newAction("launch", "alfred.workflow.action.launchfiles", 1, map[string]any{
+		"paths":  append([]string{}, paths...),
+		"toggle": false,
+	})
+}
+
 // Raw adds any other Alfred object, as it appears in an exported info.plist,
 // such as "alfred.workflow.output.largetype".
 func Raw(kind string, version int, config map[string]any) *ActionNode {

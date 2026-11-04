@@ -186,6 +186,11 @@ func (w *WorkflowView) graph() (*graph, error) {
 		case used[uid]:
 			return fmt.Errorf("ID %q is used twice", uid)
 		}
+		if v, ok := n.(validator); ok {
+			if err := v.validate(); err != nil {
+				return err
+			}
+		}
 		used[uid] = true
 		g.uids[n] = uid
 		g.nodes = append(g.nodes, n)

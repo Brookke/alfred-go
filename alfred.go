@@ -56,6 +56,11 @@ type Node interface {
 	object(uid string) (kind string, version int, config map[string]any)
 }
 
+// validator is a node that can be misconfigured, checked when the plist is built.
+type validator interface {
+	validate() error
+}
+
 // runner is a node backed by a Go function that Alfred calls at runtime.
 type runner interface {
 	run(arg string, out io.Writer) error

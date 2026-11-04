@@ -196,3 +196,36 @@ func TestBuildPackagesExecutable(t *testing.T) {
 		t.Errorf("workflow binary mode = %v, want executable", modes["workflow"])
 	}
 }
+
+func TestHotkeyLaunchesApps(t *testing.T) {
+	launch := LaunchApps("/Applications/Safari.app").Set("toggle", true)
+	p, err := Workflow("Apps",
+		Hotkey(Cmd|Alt, "s").Then(launch),
+		Hotkey(None, "").Then(launch),
+	).BundleID("com.example.apps").plist()
+	if err != nil {
+		t.Fatal(err)
+	}
+	objects := p["objects"].([]any)
+	config := func(i int) map[string]any { return objects[i].(map[string]any)["config"].(map[string]any) }
+
+	if o := objects[0].(map[string]any); o["type"] != "alfred.workflow.trigger.hotkey" || o["uid"] != "hotkey" {
+		t.Errorf("hotkey object = %v", o)
+	}
+	if c := config(0); c["hotkey"] != 1 || c["hotmod"] != int(Cmd|Alt) || c["hotstring"] != "S" {
+		t.Errorf("hotkey config = %v", c)
+	}
+	if c := config(1); !slices.Equal(c["paths"].([]string), []string{"/Applications/Safari.app"}) || c["toggle"] != true {
+		t.Errorf("launch config = %v", c)
+	}
+	if c := config(2); c["hotkey"] != 0 || c["hotmod"] != 0 || c["hotstring"] != "" {
+		t.Errorf("unset hotkey config = %v", c)
+	}
+	if objects[2].(map[string]any)["uid"] != "hotkey-2" {
+		t.Errorf("second hotkey uid = %v", objects[2].(map[string]any)["uid"])
+	}
+
+	if _, err := Workflow("x", Hotkey(Cmd, "nope")).BundleID("b").plist(); err == nil {
+		t.Error("unknown key should be an error")
+	}
+}

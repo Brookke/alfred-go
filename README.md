@@ -38,13 +38,21 @@ The program is both the build tool and the workflow. `build` writes an `.alfredw
 | --- | --- |
 | `ScriptFilter(keyword, filter)` | Script Filter backed by a Go function |
 | `Keyword(keyword)` | Keyword input |
+| `Hotkey(mods, key)` | Hotkey trigger, such as `Hotkey(alfred.Cmd\|alfred.Alt, "S")`; `""` leaves the key for you to record in Alfred |
 | `OpenURL()` | Open URL, using its input |
 | `Copy()`, `Paste()` | Copy to Clipboard, optionally pasting |
+| `LaunchApps(paths...)` | Launch Apps / Files; `.Set("toggle", true)` hides an app that's already frontmost |
 | `Notify(title)` | Post Notification |
 | `Run(handler)` | Run Script backed by a Go function; its output passes on |
 | `Raw(kind, version, config)` | Any other object, as in an exported `info.plist` |
 
-Inputs take `.Title`, `.Subtitle`, `.NoSpace`, `.ArgumentRequired` and `.NoArgument`. Actions take `.Set(key, value)` for config this package doesn't model.
+A hotkey that opens an app:
+
+```go
+alfred.Hotkey(alfred.Cmd|alfred.Alt, "S").Then(alfred.LaunchApps("/Applications/Safari.app"))
+```
+
+Keyword inputs take `.Title`, `.Subtitle`, `.NoSpace`, `.ArgumentRequired` and `.NoArgument`. Actions take `.Set(key, value)` for config this package doesn't model.
 
 ## Commands
 
