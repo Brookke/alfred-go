@@ -38,7 +38,7 @@ The program is both the build tool and the workflow. `build` writes an `.alfredw
 | --- | --- |
 | `ScriptFilter(keyword, filter)` | Script Filter backed by a Go function |
 | `Keyword(keyword)` | Keyword input |
-| `Hotkey(mods, key)` | Hotkey trigger, such as `Hotkey(alfred.Cmd\|alfred.Alt, "S")`; `""` leaves the key for you to record in Alfred |
+| `Hotkey(mods, key)` | Hotkey trigger, such as `Hotkey(alfred.Cmd\|alfred.Alt, "S")`; `""` leaves the key for you to record in Alfred; `.OnlyIn(bundleIDs...)` limits it to those apps |
 | `OpenURL()` | Open URL, using its input |
 | `Copy()`, `Paste()` | Copy to Clipboard, optionally pasting |
 | `LaunchApps(paths...)` | Launch Apps / Files; `.Set("toggle", true)` hides an app that's already frontmost |
@@ -50,6 +50,19 @@ A hotkey that opens an app:
 
 ```go
 alfred.Hotkey(alfred.Cmd|alfred.Alt, "S").Then(alfred.LaunchApps("/Applications/Safari.app"))
+```
+
+`.OnlyIn(bundleIDs...)` limits a hotkey to when one of those apps is frontmost. A Chrome-only shortcut that copies the current tab's URL, like Arc's:
+
+```go
+alfred.Hotkey(alfred.Cmd|alfred.Shift, "C").OnlyIn("com.google.Chrome").
+	Then(alfred.Run(chromeURL).Then(alfred.Copy(), alfred.Notify("URL copied")))
+
+func chromeURL(string) (string, error) {
+	out, err := exec.Command("osascript", "-e",
+		`tell application "Google Chrome" to get URL of active tab of front window`).Output()
+	return strings.TrimSpace(string(out)), err
+}
 ```
 
 Keyword inputs take `.Title`, `.Subtitle`, `.NoSpace`, `.ArgumentRequired` and `.NoArgument`. Actions take `.Set(key, value)` for config this package doesn't model.

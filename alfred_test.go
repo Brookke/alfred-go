@@ -229,3 +229,22 @@ func TestHotkeyLaunchesApps(t *testing.T) {
 		t.Error("unknown key should be an error")
 	}
 }
+
+func TestHotkeyOnlyIn(t *testing.T) {
+	p, err := Workflow("Copy URL",
+		Hotkey(Cmd|Shift, "c").OnlyIn("com.google.Chrome").Then(Copy()),
+		Hotkey(Cmd, "k").Then(Copy()),
+	).BundleID("com.example.copyurl").plist()
+	if err != nil {
+		t.Fatal(err)
+	}
+	objects := p["objects"].([]any)
+	config := func(i int) map[string]any { return objects[i].(map[string]any)["config"].(map[string]any) }
+
+	if c := config(0); !slices.Equal(c["relatedApps"].([]string), []string{"com.google.Chrome"}) || c["relatedAppsMode"] != 1 {
+		t.Errorf("OnlyIn hotkey config = %v", c)
+	}
+	if c := config(2); c["relatedApps"] != nil || c["relatedAppsMode"] != 0 {
+		t.Errorf("global hotkey config = %v", c)
+	}
+}

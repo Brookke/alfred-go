@@ -10,6 +10,7 @@ type HotkeyNode struct {
 	node[*HotkeyNode]
 	mods Modifier
 	key  string
+	apps []string
 }
 
 // Hotkey runs the nodes connected with Then when key is pressed with mods
@@ -19,6 +20,13 @@ type HotkeyNode struct {
 func Hotkey(mods Modifier, key string) *HotkeyNode {
 	h := &HotkeyNode{mods: mods, key: key}
 	h.self, h.label = h, "hotkey"
+	return h
+}
+
+// OnlyIn limits the hotkey to when one of the apps, given by bundle ID such
+// as "com.google.Chrome", is frontmost. Elsewhere the keys reach the app as usual.
+func (h *HotkeyNode) OnlyIn(bundleIDs ...string) *HotkeyNode {
+	h.apps = append(h.apps, bundleIDs...)
 	return h
 }
 
@@ -35,11 +43,15 @@ func (h *HotkeyNode) object(string) (string, int, map[string]any) {
 	if h.key == "" {
 		mods = 0
 	}
-	return "alfred.workflow.trigger.hotkey", 2, map[string]any{
+	config := map[string]any{
 		"action": 0, "argument": 0, "focusedappvariable": false, "focusedappvariablename": "",
 		"hotkey": code, "hotmod": mods, "hotstring": display,
 		"leftcursor": false, "modsmode": 0, "relatedAppsMode": 0,
 	}
+	if len(h.apps) > 0 {
+		config["relatedApps"], config["relatedAppsMode"] = h.apps, 1
+	}
+	return "alfred.workflow.trigger.hotkey", 2, config
 }
 
 // keyCode is key's macOS virtual key code (US layout). The empty key is 0,
