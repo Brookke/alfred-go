@@ -165,8 +165,8 @@ func TestInvalidAlfredUI(t *testing.T) {
 
 func TestDeclaredUI(t *testing.T) {
 	status := ui.Label().ID("status")
-	hello := ui.NewScript("hello", func(a struct{ Name string }) (ui.Actions, error) {
-		return ui.Do(ui.Update(status.Patch().Text("Hello " + a.Name))), nil
+	hello := ui.NewScript("hello", func(a struct{ Name string }) (ui.Changes, error) {
+		return ui.Apply(ui.Update(status.Patch().Text("Hello " + a.Name))), nil
 	})
 	name := ui.TextField().ID("name")
 	doc := ui.Window(ui.VStack(name.OnChanged(hello.Run(struct{ Name string }{name.TextValue()})), status))

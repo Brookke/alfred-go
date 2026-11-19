@@ -12,24 +12,24 @@ type runner interface {
 	call(args []string) (any, error)
 }
 
-// Script is a Go function that the interface runs, passing values
-// from the interface as the fields of A, a struct of string, bool and int
-// fields. Run the script from an event with Run:
+// Script is a Go function that the interface runs, passing values from the
+// interface as the fields of A, a struct of string, bool and int fields, in
+// order. It returns the Changes to make. Run the script from an event with Run:
 //
 //	type searchArgs struct{ Query, Kind string }
-//	search := ui.NewScript("search", func(a searchArgs) (ui.Actions, error) { ... })
+//	search := ui.NewScript("search", func(a searchArgs) (ui.Changes, error) { ... })
 //	query.OnChanged(search.Run(searchArgs{Query: query.TextValue(), Kind: kinds.SelectedValue()}))
 //
 // alfred.UI packages each script the document uses as scripts/<name>.
 type Script[A any] struct {
 	name   string
-	fn     func(A) (Actions, error)
+	fn     func(A) (Changes, error)
 	async  bool
 	fields []int
 }
 
 // NewScript makes fn a script called name.
-func NewScript[A any](name string, fn func(A) (Actions, error)) *Script[A] {
+func NewScript[A any](name string, fn func(A) (Changes, error)) *Script[A] {
 	t := reflect.TypeFor[A]()
 	if t.Kind() != reflect.Struct {
 		panic(fmt.Sprintf("ui: script %s takes %s; it must take a struct", name, t))
@@ -74,7 +74,7 @@ func (s *Script[A]) Run(args A) Action {
 // Call runs the script as Alfred does, with the args a Run action passes.
 // Alfred passes "<null>" for unset values, such as a list with nothing
 // selected; they arrive as zero values.
-func (s *Script[A]) Call(args []string) (Actions, error) {
+func (s *Script[A]) Call(args []string) (Changes, error) {
 	var a A
 	v := reflect.ValueOf(&a).Elem()
 	for i, f := range s.fields {
@@ -88,13 +88,13 @@ func (s *Script[A]) Call(args []string) (Actions, error) {
 		case reflect.Bool:
 			b, err := strconv.ParseBool(args[i])
 			if err != nil {
-				return Actions{}, fmt.Errorf("script %s: %s: %w", s.name, v.Type().Field(f).Name, err)
+				return Changes{}, fmt.Errorf("script %s: %s: %w", s.name, v.Type().Field(f).Name, err)
 			}
 			field.SetBool(b)
 		default:
 			n, err := strconv.ParseInt(args[i], 10, 64)
 			if err != nil {
-				return Actions{}, fmt.Errorf("script %s: %s: %w", s.name, v.Type().Field(f).Name, err)
+				return Changes{}, fmt.Errorf("script %s: %s: %w", s.name, v.Type().Field(f).Name, err)
 			}
 			field.SetInt(n)
 		}
@@ -104,7 +104,7 @@ func (s *Script[A]) Call(args []string) (Actions, error) {
 
 func (s *Script[A]) call(args []string) (any, error) {
 	actions, err := s.Call(args)
-	if err != nil || actions.commands == nil {
+	if err != nil || len(actions.commands) == 0 {
 		return nil, err
 	}
 	return actions, nil

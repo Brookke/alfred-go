@@ -2,11 +2,12 @@ package ui
 
 import (
 	"encoding/json"
+	"fmt"
 	"maps"
 	"reflect"
 )
 
-// Action is what an event or shortcut runs: JSON actions made with Do, a
+// Action is what an event or shortcut runs: Changes made with Apply, a
 // script's Run, or a component function with Call.
 type Action interface {
 	action() map[string]any
@@ -25,38 +26,56 @@ func actionList(actions []Action) any {
 	return list
 }
 
-// Actions are JSON actions: changes to the interface and other commands.
-// Events run them with no script, and scripts return them.
-type Actions struct {
-	commands map[string]any
+// Changes are what scripts return and events can run without a script:
+// updates to the interface, and other commands such as Finish. They are
+// Alfred's JSON actions.
+type Changes struct {
+	commands []Command
 }
 
-// Command is one JSON action, such as Update or Finish.
+// Command is one change, such as Update or Finish.
 type Command interface {
 	apply(commands map[string]any)
 }
 
-// Do combines commands into Actions. Alfred applies them in its own order:
-// remove, insert, update, replace, then the rest, with finish last.
-func Do(commands ...Command) Actions {
-	a := Actions{commands: map[string]any{}}
-	for _, c := range commands {
-		c.apply(a.commands)
+// Apply combines commands into Changes. Alfred applies them in its own
+// order: remove, insert, update, replace, then the rest, with finish last.
+// Commands resolve the components they refer to when they're written, so
+// those components can be named afterwards.
+func Apply(commands ...Command) Changes {
+	if commands == nil {
+		commands = []Command{}
 	}
-	return a
+	return Changes{commands: commands}
 }
 
-func (a Actions) action() map[string]any {
-	return map[string]any{"type": "json", "src": a.commands}
+// None is no changes, for a script with nothing to change.
+var None = Changes{}
+
+func (a Changes) build() map[string]any {
+	m := map[string]any{}
+	for _, c := range a.commands {
+		c.apply(m)
+	}
+	return m
 }
 
-func (a Actions) uses() []runner { return nil }
+func (a Changes) action() map[string]any {
+	return map[string]any{"type": "json", "src": a.build()}
+}
 
-func (a Actions) MarshalJSON() ([]byte, error) {
-	if a.commands == nil {
-		return []byte("{}"), nil
+func (a Changes) uses() []runner { return nil }
+
+func (a Changes) MarshalJSON() (data []byte, err error) {
+	defer func() {
+		if r := recover(); r != nil {
+			err = fmt.Errorf("%v", r)
+		}
+	}()
+	if data, err = jsonMarshal(a.build()); err != nil {
+		return nil, err
 	}
-	return jsonMarshal(a.commands)
+	return resolve(data)
 }
 
 type commandFunc func(map[string]any)
@@ -79,10 +98,11 @@ func Update(patches ...Component) Command {
 		for _, p := range patches {
 			c := p.base()
 			props := c.patch()
-			if existing, ok := ids[c.target.id].(map[string]any); ok {
+			id := c.target.name()
+			if existing, ok := ids[id].(map[string]any); ok {
 				maps.Copy(existing, props)
 			} else {
-				ids[c.target.id] = props
+				ids[id] = props
 			}
 		}
 	})
@@ -155,20 +175,20 @@ func (f *FinishCommand) apply(m map[string]any) {
 	m["finish"] = finish
 }
 
-func (f *FinishCommand) action() map[string]any { return Do(f).action() }
+func (f *FinishCommand) action() map[string]any { return Apply(f).action() }
 func (f *FinishCommand) uses() []runner         { return nil }
 
 type call struct {
-	target    string
+	target    *core
 	functions []string
 }
 
 // Call runs functions on a component, such as Call(list, ui.SelectDown).
 func Call(c Component, functions ...string) Action {
 	if c == nil || reflect.ValueOf(c).IsNil() {
-		panic("ui: Call refers to a component that hasn't been created yet")
+		panic("ui: Call refers to a component that's nil; declare components before the actions that refer to them")
 	}
-	return call{target: c.base().id, functions: functions}
+	return call{target: c.base(), functions: functions}
 }
 
 func (c call) action() map[string]any {
@@ -176,7 +196,7 @@ func (c call) action() map[string]any {
 	if len(c.functions) == 1 {
 		args = c.functions[0]
 	}
-	return map[string]any{"type": "function", "src": c.target, "args": args}
+	return map[string]any{"type": "function", "src": c.target.name(), "args": args}
 }
 
 func (c call) uses() []runner { return nil }

@@ -70,8 +70,7 @@ func (v *ViewComponent) Shortcut(key string, actions ...Action) *ViewComponent {
 	if v.target != nil {
 		panic("ui: shortcuts can't be patched")
 	}
-	v.shortcuts = append(v.shortcuts, map[string]any{"shortcut": key, "action": actionList(actions)})
-	v.used = append(v.used, actions...)
+	v.shortcuts = append(v.shortcuts, shortcut{key: key, actions: actions})
 	return v
 }
 

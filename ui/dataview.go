@@ -1,6 +1,6 @@
 package ui
 
-// DataViewComponent shows rows of data, each rendered by a Cell, as a list
+// DataViewComponent shows rows of data, each rendered by its Cell, as a list
 // or a grid. Set the rows with Rows, at build time or from a script:
 //
 //	ui.Update(results.Patch().Rows(
@@ -9,16 +9,23 @@ package ui
 //	))
 type DataViewComponent struct{ component[*DataViewComponent] }
 
-// DataView shows rows in cells laid out like cell.
-func DataView(cell *CellSpec) *DataViewComponent {
+// DataView shows rows, each in a cell set with Cell.
+func DataView() *DataViewComponent {
 	d := newComponent("dataview", &DataViewComponent{}, func() *DataViewComponent {
 		p := &DataViewComponent{}
 		p.self = p
 		return p
 	})
-	d.set("cell", cell)
-	d.cell = cell.root
 	return d.Rows()
+}
+
+// Cell sets how each row is rendered.
+func (d *DataViewComponent) Cell(cell *CellSpec) *DataViewComponent {
+	if d.target != nil {
+		panic("ui: a data view's cell can't be patched")
+	}
+	d.cell = cell.root
+	return d.Set("cell", cell)
 }
 
 // Rows sets the rows shown, in order.
@@ -39,14 +46,31 @@ func (d *DataViewComponent) Placeholder(text string) *DataViewComponent {
 	return d.Set("placeholder", text)
 }
 
-// Behaviour tweaks selection: wrap from the end back to the start, select
-// on hover, and allow nothing to be selected.
-func (d *DataViewComponent) Behaviour(wrap, hover, allowEmpty bool) *DataViewComponent {
-	selection := map[string]any{"hover": hover, "allowempty": allowEmpty}
-	if wrap {
-		selection["wrap"] = "vertical"
+// WrapSelection moves the selection from the last row back to the first.
+func (d *DataViewComponent) WrapSelection() *DataViewComponent {
+	return d.selection("wrap", "vertical")
+}
+
+// SelectOnHover selects the row under the mouse, which fires Changed.
+func (d *DataViewComponent) SelectOnHover() *DataViewComponent { return d.selection("hover", true) }
+
+// AllowNoSelection lets nothing be selected; Changed then passes null.
+func (d *DataViewComponent) AllowNoSelection() *DataViewComponent {
+	return d.selection("allowempty", true)
+}
+
+func (d *DataViewComponent) selection(key string, value any) *DataViewComponent {
+	behaviour, _ := d.props["behaviour"].(map[string]any)
+	if behaviour == nil {
+		behaviour = map[string]any{}
 	}
-	return d.Set("behaviour", map[string]any{"selection": selection})
+	selection, _ := behaviour["selection"].(map[string]any)
+	if selection == nil {
+		selection = map[string]any{}
+	}
+	selection[key] = value
+	behaviour["selection"] = selection
+	return d.Set("behaviour", behaviour)
 }
 
 // SelectedUID is a placeholder for the selected row's UID when an action runs.

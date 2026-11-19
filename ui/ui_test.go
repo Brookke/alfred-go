@@ -64,16 +64,16 @@ func newNotes() *notes {
 	n.title = Label().ID("title").LineBreak(WordWrap)
 	n.icon = ImageView().ID("icon").Square(16)
 	n.status = Label().ID("status")
-	n.results = DataView(Cell(HStack(n.icon, n.title).ID("cell").Padding(4)).
+	n.results = DataView().Cell(Cell(HStack(n.icon, n.title).ID("cell").Padding(4)).
 		Height(30).
 		Init(n.title.Patch().Colour(LabelColour)).
 		Selected(n.title.Patch().Colour(SelectedText))).
 		ID("results").Cols(2)
-	n.search = NewScript("search", func(a searchArgs) (Actions, error) {
+	n.search = NewScript("search", func(a searchArgs) (Changes, error) {
 		if a.Query == "fail" {
-			return Actions{}, errors.New("nope")
+			return Changes{}, errors.New("nope")
 		}
-		return Do(
+		return Apply(
 			Update(
 				n.results.Patch().Rows(
 					Row("1", n.title.Patch().Text(a.Query+" "+a.Kind), n.icon.Patch().Image(Symbol("star"))).With("path", "/a"),
@@ -88,7 +88,7 @@ func newNotes() *notes {
 		Border(
 			HStack(n.query.OnChanged(run), n.kinds.OnChanged(run)).Region(Top),
 			n.results.Region(Centre).OnActioned(Finish(n.results.Selected("path")).Var("mode", "open")),
-			HStack(n.status, Button("Clear").On(Actioned, Confirm("Clear?", "Clear", Do(Update(n.query.Patch().Text("")))))).Region(Bottom),
+			HStack(n.status, Button("Clear").On(Actioned, Confirm("Clear?", "Clear", Apply(Update(n.query.Patch().Text("")))))).Region(Bottom),
 		).ID("root").
 			Shortcut("↓", Call(n.results, SelectDown)).
 			Shortcut("⌘↩", Finish(n.results.SelectedUID())),
@@ -187,7 +187,7 @@ func TestScripts(t *testing.T) {
 		t.Error("missing args should be zero values")
 	}
 
-	empty := NewScript("noop", func(struct{}) (Actions, error) { return Actions{}, nil })
+	empty := NewScript("noop", func(struct{}) (Changes, error) { return Changes{}, nil })
 	if out, err := empty.call(nil); out != nil || err != nil {
 		t.Errorf("empty actions = %v, %v", out, err)
 	}
@@ -199,29 +199,31 @@ func TestPatches(t *testing.T) {
 	if l.props["text"] != "a" || p.Name() != "l" {
 		t.Errorf("patching changed the component: %v", l.props)
 	}
-	m := decode(t, Do(Update(p)))
+	m := decode(t, Apply(Update(p)))
 	if get(m, "update", "ids", "l", "text") != "b" || get(m, "update", "ids", "l", "hidden") != true {
 		t.Errorf("update = %v", m)
 	}
-	if get(decode(t, Do(Update(ImageView().ID("i").Patch().Image(NoImage)))), "update", "ids", "i", "image") != nil {
+	if get(decode(t, Apply(Update(ImageView().ID("i").Patch().Image(NoImage)))), "update", "ids", "i", "image") != nil {
 		t.Error("NoImage should be null")
 	}
 	colour := decode(t, map[string]any{"c": Adaptive(Hex("#fff"), Hex("#000"))})
 	if get(colour, "c", "dark") != "#000" {
 		t.Errorf("adaptive = %v", colour)
 	}
-	sel := decode(t, Do(Update(DataView(Cell(Label())).ID("d").Patch().Select("x"))))
+	sel := decode(t, Apply(Update(DataView().Cell(Cell(Label())).ID("d").Patch().Select("x"))))
 	if get(sel, "update", "ids", "d", "data", "select") != "x" || get(sel, "update", "ids", "d", "data", "src") != nil {
 		t.Errorf("select alone shouldn't replace rows: %v", sel)
 	}
+	if _, err := json.Marshal(Apply(Update(Label().ID("whole")))); err == nil || !strings.Contains(err.Error(), "not a patch") {
+		t.Errorf("a component in Update should be an error: %v", err)
+	}
 	for name, f := range map[string]func(){
-		"patch in update of component": func() { Do(Update(Label())) },
-		"patch constraint":             func() { Label().Patch().Region(Top) },
-		"patch event":                  func() { Label().Patch().OnChanged() },
-		"non-struct script":            func() { NewScript("x", func(string) (Actions, error) { return Actions{}, nil }) },
-		"float field":                  func() { NewScript("x", func(struct{ F float64 }) (Actions, error) { return Actions{}, nil }) },
-		"placeholder before creation":  func() { var l *LabelComponent; _ = l.Get("text") },
-		"call before creation":         func() { var d *DataViewComponent; Call(d, SelectUp) },
+		"patch constraint":   func() { Label().Patch().Region(Top) },
+		"patch event":        func() { Label().Patch().OnChanged() },
+		"non-struct script":  func() { NewScript("x", func(string) (Changes, error) { return Changes{}, nil }) },
+		"float field":        func() { NewScript("x", func(struct{ F float64 }) (Changes, error) { return Changes{}, nil }) },
+		"placeholder of nil": func() { var l *LabelComponent; _ = l.Get("text") },
+		"call of nil":        func() { var d *DataViewComponent; Call(d, SelectUp) },
 	} {
 		func() {
 			defer func() {
@@ -235,18 +237,87 @@ func TestPatches(t *testing.T) {
 }
 
 func TestInvalidDocuments(t *testing.T) {
-	a := NewScript("same", func(struct{}) (Actions, error) { return Actions{}, nil })
-	b := NewScript("same", func(struct{}) (Actions, error) { return Actions{}, nil })
+	a := NewScript("same", func(struct{}) (Changes, error) { return Changes{}, nil })
+	b := NewScript("same", func(struct{}) (Changes, error) { return Changes{}, nil })
 	l := Label()
 	for name, doc := range map[string]*Document{
 		"duplicate IDs":     Window(VStack(Label().ID("x"), Label().ID("x"))),
 		"patch in layout":   Window(VStack(l.Patch())),
 		"same script names": Window(VStack(Button("a").OnActioned(a.Run(struct{}{})), Button("b").OnActioned(b.Run(struct{}{})))),
 		"no root":           Window(nil),
+		"dataview no cell":  Window(DataView()),
 	} {
 		if _, err := doc.JSON(""); err == nil {
 			t.Errorf("%s: expected an error", name)
 		}
+	}
+}
+
+func TestReferences(t *testing.T) {
+	// A placeholder can come before the ID, which resolves when JSON is written.
+	label := Label()
+	field := TextField()
+	button := Button("Go").OnActioned(Apply(Update(label.Patch().Text("x")), Finish(field.TextValue())))
+	field.ID("field")
+	label.ID("out")
+	m := decode(t, Window(VStack(field, label, button)))
+	action := get(m, "window", "root", "components", 2, "events", 0, "action", "src")
+	if get(action, "finish", "args") != "{value:field.text}" || get(action, "update", "ids", "out", "text") != "x" {
+		t.Errorf("late IDs = %v", action)
+	}
+
+	// Referring to a component without an ID is an error.
+	unnamed := TextField()
+	for name, doc := range map[string]*Document{
+		"placeholder": Window(VStack(unnamed, Button("a").OnActioned(Finish(unnamed.TextValue())))),
+		"call":        Window(VStack(unnamed, Button("a").OnActioned(Call(unnamed, "focus")))),
+		"patch":       Window(VStack(unnamed, Button("a").OnActioned(Apply(Update(unnamed.Patch().Text("")))))),
+		"cell style":  Window(DataView().Cell(Cell(unnamed).Selected(unnamed.Patch().Text("")))),
+	} {
+		if _, err := doc.JSON(""); err == nil || !strings.Contains(err.Error(), "needs an ID") {
+			t.Errorf("%s: err = %v", name, err)
+		}
+	}
+	func() {
+		defer func() {
+			if recover() == nil {
+				t.Error("a row patching an unnamed component should panic")
+			}
+		}()
+		Row("x", Label().Patch().Text("a"))
+	}()
+}
+
+func TestErrorLabel(t *testing.T) {
+	status := Label().ID("status")
+	field := TextField().ID("f")
+	fail := NewScript("fail", func(struct{ X string }) (Changes, error) { return None, errors.New("broken") })
+	crash := NewScript("crash", func(struct{}) (Changes, error) { panic("boom") })
+	doc := Window(VStack(field.OnChanged(fail.Run(struct{ X string }{field.TextValue()})), Button("c").OnActioned(crash.Run(struct{}{})), status)).
+		ErrorLabel(status)
+	for name, want := range map[string]string{"fail": "broken", "crash": "boom"} {
+		out, err := doc.Scripts()[name](nil)
+		if err != nil {
+			t.Fatalf("%s: %v", name, err)
+		}
+		if got := get(decode(t, out), "update", "ids", "status", "text"); got != want {
+			t.Errorf("%s: status = %v", name, got)
+		}
+	}
+	if _, err := Window(VStack(field.OnChanged(fail.Run(struct{ X string }{})))).Scripts()["fail"](nil); err == nil {
+		t.Error("without an error label, the error should be returned")
+	}
+}
+
+func TestOptions(t *testing.T) {
+	d := DataView().Cell(Cell(Label())).WrapSelection().SelectOnHover().AllowNoSelection().Width(100).Height(20)
+	m := decode(t, Window(d))
+	root := get(m, "window", "root")
+	if get(root, "behaviour", "selection", "wrap") != "vertical" || get(root, "behaviour", "selection", "hover") != true || get(root, "behaviour", "selection", "allowempty") != true {
+		t.Errorf("behaviour = %v", get(root, "behaviour"))
+	}
+	if get(root, "constraints", "size", "width") != 100.0 || get(root, "constraints", "size", "height") != 20.0 {
+		t.Errorf("size = %v", get(root, "constraints"))
 	}
 }
 

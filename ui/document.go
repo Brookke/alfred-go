@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"maps"
+	"os"
 )
 
 // Document is a whole interface: a window and its settings.
@@ -14,6 +15,7 @@ type Document struct {
 	vars    map[string]any
 	config  map[string]any
 	colours map[string]any
+	errors  *LabelComponent
 }
 
 // Window is an interface whose window shows root.
@@ -124,11 +126,22 @@ func (d *Document) JSON(bundleID string) ([]byte, error) {
 	if d.root == nil {
 		return nil, fmt.Errorf("ui: the window has no root component")
 	}
+	return d.json(bundleID)
+}
+
+func (d *Document) json(bundleID string) (data []byte, err error) {
+	defer func() {
+		if r := recover(); r != nil {
+			err = fmt.Errorf("%v", r)
+		}
+	}()
 	ids := map[string]bool{}
-	var err error
 	walk(d.root, func(c *core) {
 		if c.target != nil && err == nil {
 			err = fmt.Errorf("ui: a patch of %s is in the layout; add the component itself", c.target.id)
+		}
+		if c.kind == "dataview" && c.target == nil && c.cell == nil && err == nil {
+			err = fmt.Errorf("ui: data view %s has no Cell", c.id)
 		}
 		if ids[c.id] && err == nil {
 			err = fmt.Errorf("ui: two components have ID %q", c.id)
@@ -157,7 +170,11 @@ func (d *Document) JSON(bundleID string) ([]byte, error) {
 	if d.colours != nil {
 		m["colours"] = d.colours
 	}
-	return json.MarshalIndent(m, "", "  ")
+	data, err = json.MarshalIndent(m, "", "  ")
+	if err != nil {
+		return nil, err
+	}
+	return resolve(data)
 }
 
 func (d *Document) scripts() (map[string]runner, error) {
@@ -167,7 +184,14 @@ func (d *Document) scripts() (map[string]runner, error) {
 		return scripts, nil
 	}
 	walk(d.root, func(c *core) {
-		for _, a := range c.used {
+		var actions []Action
+		for _, e := range c.events {
+			actions = append(actions, e.actions...)
+		}
+		for _, sc := range c.shortcuts {
+			actions = append(actions, sc.actions...)
+		}
+		for _, a := range actions {
 			for _, s := range a.uses() {
 				if other, ok := scripts[s.scriptName()]; ok && other != s && err == nil {
 					err = fmt.Errorf("ui: two scripts are called %q", s.scriptName())
@@ -179,13 +203,39 @@ func (d *Document) scripts() (map[string]runner, error) {
 	return scripts, err
 }
 
+// ErrorLabel shows the errors scripts return in label, in red. Without one,
+// a failing script only writes its error to stderr, which Alfred logs.
+func (d *Document) ErrorLabel(label *LabelComponent) *Document {
+	d.errors = label
+	return d
+}
+
 // Scripts are the scripts the document's actions run, by name, for
 // alfred.UI to package and call.
 func (d *Document) Scripts() map[string]func(args []string) (any, error) {
 	scripts, _ := d.scripts()
 	out := make(map[string]func([]string) (any, error), len(scripts))
 	for name, s := range scripts {
-		out[name] = s.call
+		out[name] = d.reporting(s.call)
 	}
 	return out
+}
+
+// reporting shows a script's error in the error label, if there is one.
+func (d *Document) reporting(call func([]string) (any, error)) func([]string) (any, error) {
+	if d.errors == nil {
+		return call
+	}
+	return func(args []string) (result any, err error) {
+		defer func() {
+			if r := recover(); r != nil {
+				err = fmt.Errorf("%v", r)
+			}
+			if err != nil {
+				fmt.Fprintln(os.Stderr, err)
+				result, err = Apply(Update(d.errors.Patch().Text(err.Error()).Colour(System("systemRedColor")))), nil
+			}
+		}()
+		return call(args)
+	}
 }

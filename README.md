@@ -78,17 +78,17 @@ func chromeURL(string) (string, error) {
 type searchArgs struct{ Query string }
 
 func main() {
-	query := ui.TextField().Placeholder("Search notes").Focus()
-	title := ui.Label()
-	results := ui.DataView(ui.Cell(ui.HStack(title).Padding(8)).Height(36).
-		Selected(title.Patch().Colour(ui.SelectedText)))
+	query := ui.TextField().ID("query").Placeholder("Search notes").Focus()
+	title := ui.Label().ID("title")
+	results := ui.DataView().Cell(ui.Cell(ui.HStack(title).Padding(8)).Height(36).
+		Selected(title.Patch().Colour(ui.SelectedText))).ID("results")
 
-	search := ui.NewScript("search", func(a searchArgs) (ui.Actions, error) {
+	search := ui.NewScript("search", func(a searchArgs) (ui.Changes, error) {
 		var rows []ui.RowData
 		for _, n := range find(a.Query) {
 			rows = append(rows, ui.Row(n.ID, title.Patch().Text(n.Title)).With("path", n.Path))
 		}
-		return ui.Do(ui.Update(results.Patch().Rows(rows...))), nil
+		return ui.Apply(ui.Update(results.Patch().Rows(rows...))), nil
 	})
 
 	doc := ui.Window(ui.Border(
@@ -104,10 +104,10 @@ func main() {
 
 - **Components are values.** Each has methods for its properties, and `.Set(key, value)` covers the rest of [Alfred's reference](https://www.alfredapp.com/help/alfredui/components/). Lay them out with `Border` and `.Region`, or with `HStack`, `VStack`, `Stack`, `Grid`, `Flex` and `Form`.
 - **Patches change them.** `title.Patch().Text("…")` is a change to `title`, made with the same methods. Use patches in `ui.Update`, in a `DataView`'s `ui.Row`, and in a `Cell`'s `Init` and `Selected` styles. Components and data share one set of names, so a typo is a compile error rather than a silently ignored key.
-- **Scripts are typed Go functions.** A `ui.NewScript` takes a struct, and `Run` fills its fields with placeholders such as `query.TextValue()`. Alfred calls the script back with those values, and `"<null>"` arrives as a zero value. The script returns `ui.Actions`. Each script the document uses is packaged as `scripts/<name>`, a launcher that calls back into your program.
+- **Scripts are typed Go functions.** A `ui.NewScript` takes a struct, and `Run` fills its fields with placeholders such as `query.TextValue()`. Alfred calls the script back with those values, and `"<null>"` arrives as a zero value. The script returns `ui.Changes`, made with `ui.Apply(ui.Update(...), ...)`. Each script the document uses is packaged as `scripts/<name>`, a launcher that calls back into your program. With `Window(...).ErrorLabel(label)`, an error a script returns appears in that label in red.
 - **Finish hands off to the workflow.** The args of `ui.Finish` pass to the nodes connected with `Then`, and `.Var` sets workflow variables.
 
-IDs come from each component's type and creation order, such as `label2`, so build the document the same way on every run. Set `.ID("results")` for names that read better in Alfred's logs. `.External()` opens the UI in its own window, and `.Stack()` makes ⎋ go back instead of closing. `.Files(fsys)` adds images and other files to the package.
+Give an ID with `.ID("results")` to every component that a placeholder, patch or `ui.Call` refers to. Building the document reports any it's missing. The others get IDs from their type and creation order, such as `label2`. References resolve when the document is written, so a component can be named and configured after actions refer to it; it only has to exist. A larger UI can declare its components first and then lay them out and wire them in any order. `.External()` opens the UI in its own window, and `.Stack()` makes ⎋ go back instead of closing. `.Files(fsys)` adds images and other files to the package.
 
 For a UI written as JSON, `alfred.AlfredUI(name, files)` packages a `.alfredui` folder instead, and `.Script(name, handler)` gives its script actions Go handlers.
 
