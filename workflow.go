@@ -76,6 +76,8 @@ const usage = `usage:
   %[1]s install [-o dir]   build, then open the workflow in Alfred to import it
   %[1]s plist              print info.plist
   %[1]s run <uid> [query]  call a handler, as Alfred does
+  %[1]s ui <uid> <script> [args...]
+                           call an Alfred UI script, as Alfred does
 `
 
 func (w *WorkflowView) command(args []string, stdout, stderr io.Writer) int {
@@ -95,6 +97,12 @@ func (w *WorkflowView) command(args []string, stdout, stderr io.Writer) int {
 			query = args[2]
 		}
 		err = w.run(args[1], query, stdout)
+	case "ui":
+		if len(args) < 3 {
+			err = errors.New("usage: ui <uid> <script> [args...]")
+			break
+		}
+		err = w.runUIScript(args[1], args[2], args[3:], stdout)
 	case "plist":
 		var p map[string]any
 		if p, err = w.plist(); err == nil {
@@ -147,6 +155,28 @@ func (w *WorkflowView) run(uid, arg string, out io.Writer) error {
 		return fmt.Errorf("%q has no Go handler", uid)
 	}
 	return fmt.Errorf("no node has UID %q", uid)
+}
+
+func (w *WorkflowView) runUIScript(uid, script string, args []string, out io.Writer) error {
+	g, err := w.graph()
+	if err != nil {
+		return err
+	}
+	for _, n := range g.nodes {
+		if g.uids[n] != uid {
+			continue
+		}
+		if u, ok := n.(*UINode); ok {
+			return u.runScript(script, args, out)
+		}
+		return fmt.Errorf("%q is not an Alfred UI", uid)
+	}
+	return fmt.Errorf("no node has UID %q", uid)
+}
+
+// packager is a node that adds files to the built workflow.
+type packager interface {
+	packaged(uid string) ([]packagedFile, error)
 }
 
 type graph struct {
@@ -299,6 +329,10 @@ func (w *WorkflowView) build(dir string) (string, error) {
 	if err != nil {
 		return "", err
 	}
+	g, err := w.graph()
+	if err != nil {
+		return "", err
+	}
 	var info bytes.Buffer
 	if err := encodePlist(&info, p); err != nil {
 		return "", err
@@ -313,6 +347,27 @@ func (w *WorkflowView) build(dir string) (string, error) {
 	}
 	if w.icon != "" {
 		files = append(files, packagedFile{name: "icon.png", source: w.icon, mode: 0o644})
+	}
+	seen := make(map[string]bool)
+	for _, f := range files {
+		seen[f.name] = true
+	}
+	for _, n := range g.nodes {
+		p, ok := n.(packager)
+		if !ok {
+			continue
+		}
+		extra, err := p.packaged(g.uids[n])
+		if err != nil {
+			return "", err
+		}
+		for _, f := range extra {
+			if seen[f.name] {
+				return "", fmt.Errorf("two nodes package %s", f.name)
+			}
+			seen[f.name] = true
+			files = append(files, f)
+		}
 	}
 	if err := os.MkdirAll(dir, 0o755); err != nil {
 		return "", err

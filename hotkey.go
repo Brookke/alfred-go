@@ -17,6 +17,9 @@ type HotkeyNode struct {
 // held, such as Hotkey(Cmd|Alt, "S"). key is a letter, digit or punctuation
 // character, or a name such as "Space", "Return", "Up" or "F5". An empty key
 // leaves the shortcut unset, to be recorded in Alfred after importing.
+//
+// Alfred removes the key and modifiers when importing a workflow, so they
+// need recording again in Alfred after install; OnlyIn is kept.
 func Hotkey(mods Modifier, key string) *HotkeyNode {
 	h := &HotkeyNode{mods: mods, key: key}
 	h.self, h.label = h, "hotkey"
