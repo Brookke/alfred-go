@@ -74,6 +74,8 @@ func Main(w *WorkflowView) {
 const usage = `usage:
   %[1]s build [-o dir]     write the .alfredworkflow to dir (default dist)
   %[1]s install [-o dir]   build, then open the workflow in Alfred to import it
+  %[1]s dev [-log]         build and install in place, replacing the last dev
+                           install, and reload it; -log logs Alfred UIs to a file
   %[1]s plist              print info.plist
   %[1]s run <uid> [query]  call a handler, as Alfred does
   %[1]s ui <uid> <script> [args...]
@@ -81,6 +83,7 @@ const usage = `usage:
 `
 
 func (w *WorkflowView) command(args []string, stdout, stderr io.Writer) int {
+	bundleID = w.bundleID
 	name := ""
 	if len(args) > 0 {
 		name = args[0]
@@ -103,6 +106,16 @@ func (w *WorkflowView) command(args []string, stdout, stderr io.Writer) int {
 			break
 		}
 		err = w.runUIScript(args[1], args[2], args[3:], stdout)
+	case "dev":
+		flags := flag.NewFlagSet(name, flag.ContinueOnError)
+		flags.SetOutput(stderr)
+		logs := flags.Bool("log", false, "log Alfred UIs to a file")
+		if err := flags.Parse(args[1:]); errors.Is(err, flag.ErrHelp) {
+			return 0
+		} else if err != nil {
+			return 2
+		}
+		err = w.dev(*logs, stdout)
 	case "plist":
 		var p map[string]any
 		if p, err = w.plist(); err == nil {
@@ -176,7 +189,7 @@ func (w *WorkflowView) runUIScript(uid, script string, args []string, out io.Wri
 
 // packager is a node that adds files to the built workflow.
 type packager interface {
-	packaged(uid string) ([]packagedFile, error)
+	packaged(uid, bundleID string) ([]packagedFile, error)
 }
 
 type graph struct {
@@ -357,7 +370,7 @@ func (w *WorkflowView) build(dir string) (string, error) {
 		if !ok {
 			continue
 		}
-		extra, err := p.packaged(g.uids[n])
+		extra, err := p.packaged(g.uids[n], w.bundleID)
 		if err != nil {
 			return "", err
 		}

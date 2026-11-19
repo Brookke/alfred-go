@@ -7,9 +7,12 @@ import (
 	"errors"
 	"io"
 	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 	"testing/fstest"
+
+	"github.com/brookke/alfred-go/ui"
 )
 
 func uiFiles() fstest.MapFS {
@@ -130,7 +133,7 @@ func TestAlfredUIPackaged(t *testing.T) {
 	}
 
 	nested := AlfredUI("ui/deep.alfredui", uiFiles()).Script("s", nil)
-	extra, err := nested.packaged("x")
+	extra, err := nested.packaged("x", "b")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -157,5 +160,94 @@ func TestInvalidAlfredUI(t *testing.T) {
 	}
 	if _, err := Workflow("x", Keyword("a").Then(AlfredUI("x.alfredui", os.DirFS(t.TempDir())))).BundleID("b").plist(); err == nil {
 		t.Error("empty directory: expected an error")
+	}
+}
+
+func TestDeclaredUI(t *testing.T) {
+	status := ui.Label().ID("status")
+	hello := ui.NewScript("hello", func(a struct{ Name string }) (ui.Actions, error) {
+		return ui.Do(ui.Update(status.Patch().Text("Hello " + a.Name))), nil
+	})
+	name := ui.TextField().ID("name")
+	doc := ui.Window(ui.VStack(name.OnChanged(hello.Run(struct{ Name string }{name.TextValue()})), status))
+	w := Workflow("Hi", Keyword("hi").Then(UI("hi.alfredui", doc).Files(fstest.MapFS{"logo.png": {Data: []byte("png")}}))).BundleID("com.example.hi")
+
+	var out, errs bytes.Buffer
+	if code := w.command([]string{"ui", "hi.hi", "hello", "Ada"}, &out, &errs); code != 0 || !strings.Contains(out.String(), `"text":"Hello Ada"`) {
+		t.Errorf("hello = %q, %q, %d", out.String(), errs.String(), code)
+	}
+
+	path, err := w.build(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	archive, err := zip.OpenReader(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer archive.Close()
+	files := map[string]*zip.File{}
+	for _, f := range archive.File {
+		files[f.Name] = f
+	}
+	for _, name := range []string{"hi.alfredui/ui.json", "hi.alfredui/logo.png", "hi.alfredui/scripts/hello"} {
+		if files[name] == nil {
+			t.Errorf("missing %s", name)
+		}
+	}
+	r, _ := files["hi.alfredui/ui.json"].Open()
+	uiJSON, _ := io.ReadAll(r)
+	if !strings.Contains(string(uiJSON), `"bundleid": "com.example.hi"`) || !strings.Contains(string(uiJSON), `"src": "scripts/hello"`) {
+		t.Errorf("ui.json = %s", uiJSON)
+	}
+
+	clash := fstest.MapFS{"ui.json": {Data: []byte("{}")}}
+	if _, err := Workflow("x", Keyword("a").Then(UI("x.alfredui", doc).Files(clash))).BundleID("b").plist(); err == nil {
+		t.Error("a document and a ui.json file should be an error")
+	}
+	bad := ui.Window(ui.VStack(ui.Label().ID("same"), ui.Label().ID("same")))
+	if _, err := Workflow("x", Keyword("a").Then(UI("x.alfredui", bad))).BundleID("b").plist(); err == nil {
+		t.Error("an invalid document should be an error")
+	}
+}
+
+func TestDevHelpers(t *testing.T) {
+	t.Setenv("alfred_workflow_data", "")
+	t.Setenv("alfred_workflow_cache", "/tmp/cache")
+	bundleID = "com.example.dirs"
+	if !strings.HasSuffix(DataDir(), "Alfred/Workflow Data/com.example.dirs") || CacheDir() != "/tmp/cache" {
+		t.Errorf("dirs = %s, %s", DataDir(), CacheDir())
+	}
+
+	workflows := t.TempDir()
+	os.MkdirAll(filepath.Join(workflows, "user.workflow.ABC"), 0o755)
+	os.WriteFile(filepath.Join(workflows, "user.workflow.ABC", "info.plist"),
+		[]byte("<dict>\n\t<key>bundleid</key>\n\t<string>com.example.hi</string>\n</dict>"), 0o644)
+	if got, _ := installedFolder(workflows, "com.example.hi"); filepath.Base(got) != "user.workflow.ABC" {
+		t.Errorf("existing install = %s", got)
+	}
+	if got, _ := installedFolder(workflows, "com.example.new"); filepath.Base(got) != "user.workflow.com.example.new" {
+		t.Errorf("new install = %s", got)
+	}
+
+	built, err := uiWorkflow().build(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	folder := filepath.Join(workflows, "user.workflow.ABC")
+	os.WriteFile(filepath.Join(folder, "stale"), nil, 0o644)
+	if err := unpack(built, folder); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := os.Stat(filepath.Join(folder, "stale")); !os.IsNotExist(err) {
+		t.Error("unpack should replace the folder")
+	}
+	if info, err := os.Stat(filepath.Join(folder, "picker.alfredui/scripts/list")); err != nil || info.Mode()&0o111 == 0 {
+		t.Errorf("launcher = %v, %v", info, err)
+	}
+
+	logged, err := withDebugLog([]byte(`{"window":{}}`), "x.log")
+	if err != nil || !strings.Contains(string(logged), `"path": "x.log"`) {
+		t.Errorf("debug log = %s, %v", logged, err)
 	}
 }
